@@ -4,9 +4,9 @@ use regex::Regex;
 use serde::Serialize;
 use serde_with::SerializeDisplay;
 use std::collections::HashSet;
+use std::hash::Hash;
 use std::io::{prelude::*, BufReader};
 use std::{collections::HashMap, fmt::Display, str::FromStr};
-
 
 #[derive(PartialEq, Eq, Hash, SerializeDisplay, Copy, Clone, Debug)]
 pub enum DeathCause {
@@ -119,42 +119,51 @@ impl Display for DeathCause {
     }
 }
 
-#[derive(PartialEq, Eq, Hash, Serialize, Clone, Debug)]
+#[derive(PartialEq, Eq, Serialize, Clone, Debug)]
 #[serde(untagged)]
-pub enum Player {
-    Some(String),
+pub enum Entity {
+    Some(usize),
     World,
 }
 
-impl From<String> for Player {
-    fn from(value: String) -> Self {
-        match value.as_str() {
-            "<world>" => Player::World,
-            _ => Player::Some(value),
+impl Hash for Entity {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        match self {
+            Entity::World => 0.hash(state),
+            Entity::Some(id) => id.hash(state),
         }
     }
 }
 
-impl FromStr for Player {
+impl FromStr for Entity {
     type Err = anyhow::Error;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         lazy_static! {
             static ref RE: Regex =
-                Regex::new(r"^.*ClientUserinfoChanged: \d+ n\\(?<name>.*)\\t\\").unwrap();
+                Regex::new(r"^.*ClientUserinfoChanged: (?<id>\d+) n\\(?<name>.*)\\t\\").unwrap();
         }
         let captures = RE.captures(s).with_context(|| "Invalid Input")?;
-        Ok(captures
+        let name = captures
             .name("name")
             .with_context(|| "Player name not found")?
+            .as_str();
+
+        let id = captures
+            .name("id")
+            .with_context(|| "Player id not found")?
             .as_str()
-            .to_owned()
-            .into())
+            .parse()?;
+
+        match name {
+            "<world>" => Ok(Entity::World),
+            _ => Ok(Entity::Some(id)),
+        }
     }
 }
 
 pub struct KillInfo {
-    killer: Player,
-    victim: Player,
+    killer: usize,
+    victim: usize,
     cause: DeathCause,
 }
 
@@ -163,22 +172,32 @@ impl FromStr for KillInfo {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         lazy_static! {
             static ref RE: Regex =
-                Regex::new(r"^.*Kill:.*: (?<killer>.*) killed (?<victim>.*) by (?<cause>MOD_.*)$")
+                Regex::new(r"^.*Kill: (?<killer_id>\d+) (?<victim_id>\d+) (?<cause_id>\d+): (?<killer>.*) killed (?<victim>.*) by (?<cause>MOD_.*)$")
                     .unwrap();
         }
         let captures = RE.captures(s).with_context(|| "Invalid Input")?;
-        let killer: Player = captures
+
+        let killer_name = captures
             .name("killer")
             .with_context(|| "Killer not found")?
+            .as_str();
+        let killer: usize;
+        if killer_name == "<world>" {
+            killer = 0;
+        } else {
+            killer = captures
+                .name("killer_id")
+                .with_context(|| "Killer not found")?
+                .as_str()
+                .parse()?;
+        }
+
+        let victim: usize = captures
+            .name("victim_id")
+            .with_context(|| "Killer not found")?
             .as_str()
-            .to_owned()
-            .into();
-        let victim: Player = captures
-            .name("victim")
-            .with_context(|| "Victim not found")?
-            .as_str()
-            .to_owned()
-            .into();
+            .parse()?;
+
         let cause: DeathCause = captures
             .name("cause")
             .with_context(|| "Cause not found")?
@@ -196,11 +215,11 @@ impl FromStr for KillInfo {
 #[derive(Serialize, PartialEq, Debug)]
 pub struct Summary<'a> {
     pub total_kills: usize,
-    pub players: &'a HashSet<Player>,
-    pub kills: HashMap<&'a Player, isize>,
+    pub players: HashSet<&'a String>,
+    pub kills: HashMap<&'a String, isize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(flatten)]
-    pub death_report: Option<DeathReport>
+    pub death_report: Option<DeathReport>,
 }
 
 impl<'a> Display for Summary<'a> {
@@ -209,11 +228,41 @@ impl<'a> Display for Summary<'a> {
     }
 }
 
+pub struct ClientUserInfo {
+    name: String,
+    id: usize,
+}
+
+impl FromStr for ClientUserInfo {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        lazy_static! {
+            static ref RE: Regex =
+                Regex::new(r"^.*ClientUserinfoChanged: (?<id>\d+) n\\(?<name>.*)\\t\\").unwrap();
+        }
+        let captures = RE.captures(s).with_context(|| "Invalid Input")?;
+        let name = captures
+            .name("name")
+            .with_context(|| "Player name not found")?
+            .as_str()
+            .to_owned();
+
+        let id = captures
+            .name("id")
+            .with_context(|| "Player id not found")?
+            .as_str()
+            .parse()?;
+
+        Ok(ClientUserInfo { name, id })
+    }
+}
+
 enum Event {
     InitGame,
     ClientConnect,
     ClientDisconnect,
-    ClientUserinfoChanged(Player),
+    ClientUserinfoChanged(ClientUserInfo),
     ClientBegin,
     Item,
     Kill(KillInfo),
@@ -269,7 +318,7 @@ impl Display for DeathReport {
 pub struct Game {
     pub id: usize,
     kills: Vec<KillInfo>,
-    players: HashSet<Player>,
+    players: HashMap<Entity, String>,
 }
 
 impl Game {
@@ -277,7 +326,7 @@ impl Game {
         Game {
             id,
             kills: Vec::new(),
-            players: HashSet::new(),
+            players: HashMap::new(),
         }
     }
 
@@ -285,8 +334,8 @@ impl Game {
         self.kills.push(kill);
     }
 
-    pub fn add_player(&mut self, player: Player) {
-        self.players.insert(player);
+    pub fn add_or_update_player(&mut self, player: ClientUserInfo) {
+        self.players.insert(Entity::Some(player.id), player.name);
     }
 
     pub fn death_report(&self) -> DeathReport {
@@ -297,30 +346,40 @@ impl Game {
         DeathReport { report: deaths }
     }
     pub fn match_summary(&self, include_death_report: bool) -> Summary<'_> {
-        let mut kills: HashMap<&Player, isize> = HashMap::new();
-        self.kills.iter().for_each(|kill| match kill.killer {
-            Player::Some(_) => {
-                if kill.killer == kill.victim {
-                    *kills.entry(&kill.victim).or_default() -= 1
-                } else {
-                    *kills.entry(&kill.killer).or_default() += 1
+        let mut kills: HashMap<&String, isize> = HashMap::new();
+        let mut players = HashSet::new();
+
+        self.kills.iter().for_each(|kill| {
+            let victim_name = self.players.get(&Entity::Some(kill.victim)).unwrap();
+
+            match kill.killer {
+                0 => *kills.entry(victim_name).or_default() -= 1,
+                _ => {
+                    let killer_name = self.players.get(&Entity::Some(kill.killer)).unwrap();
+                    if kill.killer == kill.victim {
+                        *kills.entry(killer_name).or_default() -= 1
+                    } else {
+                        *kills.entry(killer_name).or_default() += 1
+                    }
                 }
             }
-            Player::World => *kills.entry(&kill.victim).or_default() -= 1,
         });
 
         self.players.iter().for_each(|player| {
-            kills.entry(player).or_default();
+            kills.entry(player.1).or_default();
+            players.insert(player.1);
         });
+
         let mut death_report = None;
         if include_death_report {
             death_report = Some(self.death_report())
         }
+
         Summary {
             total_kills: self.kills.len(),
             kills,
-            players: &self.players,
-            death_report
+            players,
+            death_report,
         }
     }
 }
@@ -346,7 +405,7 @@ pub fn parse_games<R: Read>(log: R) -> Result<Vec<Game>, anyhow::Error> {
             Event::ClientUserinfoChanged(player) => current_game
                 .as_mut()
                 .with_context(|| "No Game to add kill to")?
-                .add_player(player),
+                .add_or_update_player(player),
             Event::MatchSeparator => {
                 if match_ongoing {
                     match_ongoing = false;

@@ -1,4 +1,4 @@
-use quake_log_parser::{parse_games, DeathCause, DeathReport, Player, Summary};
+use quake_log_parser::{parse_games, DeathCause, DeathReport, Entity, Summary};
 use std::{
     collections::{HashMap, HashSet},
     fs::File,
@@ -9,35 +9,33 @@ fn test_parse_games() {
     let file = File::open("tests/test.log").unwrap();
     let games = parse_games(file).unwrap();
 
-    let dono_da_bola = Player::Some("Dono da Bola".to_string());
-    let mocinha = Player::Some("Mocinha".to_string());
-    let isgalamido = Player::Some("Isgalamido".to_string());
-    let zeh = Player::Some("Zeh".to_string());
-    let mal = Player::Some("Mal".to_string());
-    let assasinu_credi = Player::Some("Assasinu Credi".to_string());
-    let ootsimo = Player::Some("Oootsimo".to_string());
+    let dono_da_bola = "Dono da Bola".to_string();
+    let mocinha = "Mocinha".to_string();
+    let isgalamido = "Isgalamido".to_string();
+    let zeh = "Zeh".to_string();
+    let mal = "Mal".to_string();
+    let assasinu_credi = "Assasinu Credi".to_string();
+    let ootsimo = "Oootsimo".to_string();
 
     let game2 = Summary {
         total_kills: 11,
-        players: &HashSet::from_iter(
-            vec![dono_da_bola.clone(), mocinha.clone(), isgalamido.clone()].into_iter(),
-        ),
+        players: HashSet::from_iter(vec![&mocinha, &isgalamido].into_iter()),
         kills: HashMap::from_iter(
-            vec![(&dono_da_bola, 0), (&isgalamido, -9), (&mocinha, 0)].into_iter(),
+            vec![(&mocinha, 0), (&isgalamido, -9)].into_iter(),
         ),
-        death_report: None
+        death_report: None,
     };
 
     let game21 = Summary {
         total_kills: 131,
-        players: &HashSet::from_iter(
+        players: HashSet::from_iter(
             vec![
-                dono_da_bola.clone(),
-                zeh.clone(),
-                isgalamido.clone(),
-                mal.clone(),
-                assasinu_credi.clone(),
-                ootsimo.clone(),
+                &dono_da_bola,
+                &zeh,
+                &isgalamido,
+                &mal,
+                &assasinu_credi,
+                &ootsimo,
             ]
             .into_iter(),
         ),
@@ -52,7 +50,7 @@ fn test_parse_games() {
             ]
             .into_iter(),
         ),
-        death_report: None
+        death_report: None,
     };
 
     let game21_report = DeathReport {
