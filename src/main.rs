@@ -11,14 +11,14 @@ struct Cli {
     /// Include a death report on the causes of death of each match
     #[clap(long, short, action)]
     death_report: bool,
-    /// Select only specific game from file (Optional)
+    /// Select only specific game from file
     #[clap(long, short)]
     game_id: Option<usize>,
 }
 
 fn main() {
     let cli = Cli::parse();
-    let file = File::open("tests/test.log").unwrap();
+    let file = File::open(cli.log_filepath).unwrap();
     let games = parse_games(file).unwrap();
 
     if let Some(game_id) = cli.game_id {

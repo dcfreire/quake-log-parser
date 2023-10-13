@@ -321,8 +321,10 @@ pub struct Game {
     players: HashMap<Entity, String>,
 }
 
+
+/// This struct represents a single Quake 3 Arena match
 impl Game {
-    pub fn new(id: usize) -> Self {
+    fn new(id: usize) -> Self {
         Game {
             id,
             kills: Vec::new(),
@@ -330,14 +332,15 @@ impl Game {
         }
     }
 
-    pub fn add_kill(&mut self, kill: KillInfo) {
+    fn add_kill(&mut self, kill: KillInfo) {
         self.kills.push(kill);
     }
 
-    pub fn add_or_update_player(&mut self, player: ClientUserInfo) {
+    fn add_or_update_player(&mut self, player: ClientUserInfo) {
         self.players.insert(Entity::Some(player.id), player.name);
     }
 
+    /// Returns a death report by cause of death.
     pub fn death_report(&self) -> DeathReport {
         let mut deaths = HashMap::new();
         self.kills
@@ -345,6 +348,13 @@ impl Game {
             .for_each(|kill| *deaths.entry(kill.cause.into()).or_default() += 1);
         DeathReport { report: deaths }
     }
+
+    /// Returns the match summary for the current game. Optionally including a death
+    /// report by cause of death
+    ///
+    /// # Arguments
+    ///
+    /// * `include_death_report` - A bool indicating weather to include the match's death report.
     pub fn match_summary(&self, include_death_report: bool) -> Summary<'_> {
         let mut kills: HashMap<&String, isize> = HashMap::new();
         let mut players = HashSet::new();
@@ -384,6 +394,24 @@ impl Game {
     }
 }
 
+/// Returns a Result containing a Vec of the game objects parsed from the provided log.
+///
+/// ### Arguments
+///
+/// * `log` - A generic parameter that implements std::io::Read, which we'll read the log from.
+///
+/// ### Example
+///
+/// ```
+/// use std::fs::File;
+/// use quake_log_parser::parse_games;
+/// let file = File::open("tests/test.log").unwrap();
+/// let games = parse_games(file).unwrap();
+///
+/// for game in games {
+///     println!("game_{}: {}", game.id, game.match_summary(true));
+/// }
+/// ```
 pub fn parse_games<R: Read>(log: R) -> Result<Vec<Game>, anyhow::Error> {
     let reader = BufReader::new(log);
     let mut games = vec![];
