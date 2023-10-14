@@ -1,13 +1,14 @@
-use quake_log_parser::{parse_games, DeathCause, DeathReport, Entity, Summary};
+use quake_log_parser::{DeathCause, DeathReport, LogParser, Summary};
 use std::{
     collections::{HashMap, HashSet},
     fs::File,
 };
 
+
 #[test]
-fn test_parse_games() {
+fn test_parser() {
     let file = File::open("tests/test.log").unwrap();
-    let games = parse_games(file).unwrap();
+    let parser = LogParser::new(file);
 
     let dono_da_bola = "Dono da Bola".to_string();
     let mocinha = "Mocinha".to_string();
@@ -20,9 +21,7 @@ fn test_parse_games() {
     let game2 = Summary {
         total_kills: 11,
         players: HashSet::from_iter(vec![&mocinha, &isgalamido].into_iter()),
-        kills: HashMap::from_iter(
-            vec![(&mocinha, 0), (&isgalamido, -9)].into_iter(),
-        ),
+        kills: HashMap::from_iter(vec![(&mocinha, 0), (&isgalamido, -9)].into_iter()),
         death_report: None,
     };
 
@@ -72,8 +71,8 @@ fn test_parse_games() {
             (DeathCause::TriggerHurt, 7),
         ]),
     };
-    assert_eq!(games.len(), 21);
-    for game in games {
+    let mut game_count = 0;
+    for game in parser {
         let summary = game.match_summary(false);
         let death_report = game.death_report();
         if game.id == 2 {
@@ -90,5 +89,7 @@ fn test_parse_games() {
             death_report.report.values().sum::<isize>(),
             summary.total_kills as isize
         );
+        game_count += 1;
     }
+    assert_eq!(game_count, 21);
 }

@@ -1,7 +1,7 @@
 use std::fs::File;
 
 use clap::Parser;
-use quake_log_parser::parse_games;
+use quake_log_parser::LogParser;
 
 /// Parse quake log files
 #[derive(Parser)]
@@ -19,14 +19,22 @@ struct Cli {
 fn main() {
     let cli = Cli::parse();
     let file = File::open(cli.log_filepath).unwrap();
-    let games = parse_games(file).unwrap();
+    let mut parser = LogParser::new(file);
 
     if let Some(game_id) = cli.game_id {
-        let found_game = games.into_iter().find(|game| game.id == game_id).unwrap();
-        println!("game_{}: {}", found_game.id, found_game.match_summary(cli.death_report));
-    } else {
-        for game in games {
-            println!("game_{}: {}", game.id, game.match_summary(cli.death_report));
+        match parser.find(|game| game.id == game_id) {
+            Some(game) =>  println!(
+                "\"game_{}\": {}",
+                game.id,
+                game.match_summary(cli.death_report)
+            ),
+            None => println!("Game not found!")
         }
+    } else {
+        println!("[");
+        for game in parser {
+            println!("\"game_{}\": {},", game.id, game.match_summary(cli.death_report));
+        }
+        println!("]");
     }
 }

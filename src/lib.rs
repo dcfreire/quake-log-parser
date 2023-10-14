@@ -1,4 +1,4 @@
-use anyhow::Context;
+use anyhow::{anyhow, Context};
 use lazy_static::lazy_static;
 use regex::Regex;
 use serde::Serialize;
@@ -321,7 +321,6 @@ pub struct Game {
     players: HashMap<Entity, String>,
 }
 
-
 /// This struct represents a single Quake 3 Arena match
 impl Game {
     fn new(id: usize) -> Self {
@@ -394,60 +393,70 @@ impl Game {
     }
 }
 
-/// Returns a Result containing a Vec of the game objects parsed from the provided log.
-///
-/// ### Arguments
-///
-/// * `log` - A generic parameter that implements std::io::Read, which we'll read the log from.
-///
-/// ### Example
-///
-/// ```
-/// use std::fs::File;
-/// use quake_log_parser::parse_games;
-/// let file = File::open("tests/test.log").unwrap();
-/// let games = parse_games(file).unwrap();
-///
-/// for game in games {
-///     println!("game_{}: {}", game.id, game.match_summary(true));
-/// }
-/// ```
-pub fn parse_games<R: Read>(log: R) -> Result<Vec<Game>, anyhow::Error> {
-    let reader = BufReader::new(log);
-    let mut games = vec![];
-    let mut match_ongoing = false;
-    let mut id: usize = 1;
-    let mut current_game: Option<Game> = None;
-    for line in reader.lines() {
-        let event = Event::from_str(&line?)?;
-        match event {
-            Event::InitGame => {
-                match_ongoing = true;
-                current_game = Some(Game::new(id));
-                id += 1;
-            }
-            Event::Kill(kill) => current_game
-                .as_mut()
-                .with_context(|| "No Game to add kill to")?
-                .add_kill(kill),
-            Event::ClientUserinfoChanged(player) => current_game
-                .as_mut()
-                .with_context(|| "No Game to add kill to")?
-                .add_or_update_player(player),
-            Event::MatchSeparator => {
-                if match_ongoing {
-                    match_ongoing = false;
-                    games.push(
-                        std::mem::replace(&mut current_game, None)
-                            .with_context(|| "Game is not ongoing")?,
-                    )
-                }
-            }
-            _ => continue,
+/// Struct for parsing log files lazily
+pub struct LogParser<R: Read> {
+    reader: BufReader<R>,
+    id: usize,
+}
+
+impl<R: Read> LogParser<R> {
+    /// Construct a LogParser for the provided log
+    ///
+    /// ### Arguments
+    ///
+    /// * `log` - A generic parameter that implements std::io::Read, which we'll read the log from.
+    ///
+    /// ### Example
+    ///
+    /// ```
+    /// use std::fs::File;
+    /// use quake_log_parser::LogParser;
+    /// let file = File::open("tests/test.log").unwrap();
+    /// let parser = LogParser::new(file);
+    ///
+    /// for game in parser {
+    ///     println!("game_{}: {}", game.id, game.match_summary(true));
+    /// }
+    /// ```
+    pub fn new(log: R) -> Self {
+        LogParser {
+            reader: BufReader::new(log),
+            id: 1,
         }
     }
-    if let Some(game) = current_game {
-        games.push(game)
+
+    fn parse_game(&mut self) -> Result<Game, anyhow::Error> {
+        let mut match_ongoing = false;
+        let mut game = Game::new(self.id);
+        for line in self.reader.by_ref().lines() {
+            let event = Event::from_str(&line?)?;
+            match event {
+                Event::InitGame => {
+                    match_ongoing = true;
+                }
+                Event::Kill(kill) => game.add_kill(kill),
+                Event::ClientUserinfoChanged(player) => game.add_or_update_player(player),
+                Event::MatchSeparator => {
+                    if match_ongoing {
+                        break;
+                    }
+                }
+                _ => continue,
+            }
+        }
+        if match_ongoing {
+            self.id += 1;
+            Ok(game)
+        } else {
+            Err(anyhow!("Parsing error"))
+        }
     }
-    Ok(games)
+}
+
+impl<R: Read> Iterator for LogParser<R> {
+    type Item = Game;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.parse_game().ok()
+    }
 }
