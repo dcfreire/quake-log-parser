@@ -11,7 +11,7 @@ struct Cli {
     /// Include a death report on the causes of death of each match
     #[clap(long, short, action)]
     death_report: bool,
-    /// Select only specific game from file
+    /// Select only specific a game from the file
     #[clap(long, short)]
     game_id: Option<usize>,
 }

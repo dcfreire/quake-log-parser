@@ -23,11 +23,11 @@ Arguments:
 
 Options:
   -d, --death-report       Include a death report on the causes of death of each match
-  -g, --game-id <GAME_ID>  Select only specific game from file
+  -g, --game-id <GAME_ID>  Select only a specific game from the file
   -h, --help               Print help
 
 $ quake-log-parser tests/test.log -g 5 -d
-game_5: {
+"game_5": {
   "total_kills": 14,
   "players": [
     "Zeh",
